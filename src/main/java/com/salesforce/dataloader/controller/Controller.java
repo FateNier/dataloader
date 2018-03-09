@@ -115,24 +115,29 @@ public class Controller {
     private static Logger logger = Logger.getLogger(Controller.class);
     private String appPath;
 
-    private Controller(String name, boolean isBatchMode) throws ControllerInitializationException {
-        // load app version properties
-        Properties versionProps = new Properties();
-        try {
-            versionProps.load(this.getClass().getClassLoader().getResourceAsStream("com/salesforce/dataloader/version.properties"));
-        } catch (IOException e) {
-            throw new ControllerInitializationException(e);
+    private static void ensureStaticEnvironmentSet() throws ControllerInitializationException {
+        if (OS_TYPE == null){
+            // load app version properties
+            Properties versionProps = new Properties();
+            try {
+                versionProps.load(Controller.class.getClassLoader().getResourceAsStream("com/salesforce/dataloader/version.properties"));
+            } catch (IOException e) {
+                throw new ControllerInitializationException(e);
+            }
+            OS_TYPE = OSInfo.getOSType();
+            APP_NAME = versionProps.getProperty("dataloader.name");
+            APP_VENDOR = versionProps.getProperty("dataloader.vendor");
+            // FIXME clean this up, make static
+            // dataloader version has 3 parts, salesforce app api version should match first two parts
+            APP_VERSION = versionProps.getProperty("dataloader.version");
+            String[] dataloaderVersion = APP_VERSION.split("\\.");
+            API_VERSION = dataloaderVersion[0] + "." + dataloaderVersion[1];
+            OS_TYPE = OSInfo.getOSType();
         }
-        APP_NAME = versionProps.getProperty("dataloader.name");
-        APP_VENDOR = versionProps.getProperty("dataloader.vendor");
-        // FIXME clean this up, make static
-        // dataloader version has 3 parts, salesforce app api version should match first two parts
-        APP_VERSION = versionProps.getProperty("dataloader.version");
-        String[] dataloaderVersion = APP_VERSION.split("\\.");
-        API_VERSION = dataloaderVersion[0] + "." + dataloaderVersion[1];
+    }
 
-        OS_TYPE = OSInfo.getOSType();
-
+    private Controller(String name, boolean isBatchMode) throws ControllerInitializationException {
+        ensureStaticEnvironmentSet();
         // if name is passed to controller, use it to create a unique run file name
         try {
             initConfig(name, isBatchMode);
@@ -287,6 +292,7 @@ public class Controller {
         return isSuccessful;
     }
 
+
     /**
      * Returns current user's Dataloader configuration directory
      * ie) For Windows -
@@ -300,6 +306,11 @@ public class Controller {
      */
     private static File getUserConfigDir() {
         File dir;
+        try {
+            ensureStaticEnvironmentSet();
+        } catch (ControllerInitializationException e) {
+            e.printStackTrace();
+        }
         switch (OS_TYPE) {
             case WINDOWS: {
                 dir = Paths.get(System.getProperty("user.home"), "AppData\\Local", APP_VENDOR, getProductName(), CONFIG_DIR).toFile();
@@ -467,6 +478,12 @@ public class Controller {
     }
 
     public static synchronized void initLog() throws FactoryConfigurationError {
+        try {
+            Controller.ensureStaticEnvironmentSet();
+        } catch (ControllerInitializationException e) {
+            logger.error(e.toString(), e);
+            System.exit(1);
+        }
         // init the log if not initialized already
         if (Controller.isLogInitialized) {
             return;
@@ -484,9 +501,11 @@ public class Controller {
                 logger.info("Using built-in logging configuration, no log-conf.xml in " + logConfXml.getAbsolutePath());
             }
             logger.info(Messages.getString("Controller.logInit")); //$NON-NLS-1$
+            OS_TYPE = OSInfo.getOSType();
+
         } catch (Exception ex) {
             logger.error(Messages.getString("Controller.errorLogInit")); //$NON-NLS-1$
-            logger.error(ex.toString());
+            logger.error(ex.toString(), ex);
             System.exit(1);
         }
         Controller.isLogInitialized = true;
